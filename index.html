@@ -4,7 +4,7 @@
 		<meta charset="utf-8">
 		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 
-		<title>reveal.js</title>
+		<title>Discover Typed Data API</title>
 
 		<link rel="stylesheet" href="css/reveal.css">
 		<link rel="stylesheet" href="css/theme/black.css">
@@ -24,8 +24,460 @@
 	<body>
 		<div class="reveal">
 			<div class="slides">
-				<section>Slide 1</section>
-				<section>Slide 2</section>
+				<section>
+					<h1>Discover Typed Data API</h1>
+					<p>
+						<small>LUCA LUSSO</small>
+					</p>
+				</section>
+				<section>
+					<h1>Luca Lusso</h1>
+					<ul>
+						<li>Software developer @ Wellnet</li>
+						<li>(Co-) Mantainer of Devel, Vardumper, XHProf, ...</li>
+						<li>@lussoluca</li>
+					</ul>
+				</section>
+				<section>
+					<section>
+						<h1>The problem with D7</h1>
+						<p>(from drupal.org documentation)
+					</section>
+					<section>
+						<p>PHP is a very loosely typed language. It doesn’t have a clear definition of the different types of data it deals with.</p>
+					</section>
+					<section>
+						<p>Therefore Drupal used to be the same. For example, there was no consistent way of telling if a field value is a string, an integer or a timestamp.</p>
+					</section>
+					<section>
+						<p>Or even, to tell if something is translatable or accessible (as in permissions).</p>
+					</section>
+					<section>
+						<p>Even if you as a developer happen to know that the value of a text field happens to be a string, there’s no consistent programmatic way of fetching this information.</p>
+					</section>
+					<section>
+						<p>This expose us to (at least) two kinds of problems:</p>
+						<ul>
+							<li>Validation</li>
+							<li>Building machine readable APIs for data access</li>
+						</ul>
+					</section>
+					<section>
+						<pre><code class="hljs" data-trim contenteditable>
+$stub_form = drupal_get_form(
+  $node_type . '_node_form', (object) $stub_node
+);
+$form_state['triggering_element'] = $stub_form['actions']['submit'];
+
+drupal_form_submit(
+  $node_type . '_node_form', $form_state, (object)$stub_node
+);
+
+if ($errors = form_get_errors()) {
+  return services_error(
+    implode(" ", $errors), 406, array('form_errors' => $errors));
+}
+						</code></pre>
+						<p>How the Services module saves a node posted to a REST endpoint.</p>
+					</section>
+					<section>
+						<pre><code class="hljs" data-trim contenteditable>
+function email_field_validate($obj_type, $object, $field, $instance, $langcode, $items, &$errors) {
+  foreach ($items as $delta => $item) {
+    if ($item['email'] != '' && !valid_email_address(trim($item['email']))) {
+      $message = t('"%mail" is not a valid email address', array('%mail' => $item['email']));
+      $errors[$field['field_name']][$langcode][$delta][] = array(
+        'error' => "email_invalid",
+        'message' => $message,
+      );
+    }
+  }
+}
+						</code></pre>
+						<p>Email module hook_field_validate.</p>
+					</section>
+				</section>
+				<section>
+					<section>
+						<h1>What typed data are?</h1>
+					</section>
+					<section>
+						<p>The Typed Data API was created to provide developers with a consistent way of interacting with data in different ways.</p>
+					</section>
+					<section>
+						<p>The Typed Data API provides means of fetching more information, or metadata, about the actual data.</p>
+					</section>
+					<section>
+						<ul>
+							<li>Is this data a string? or an email address?</li>
+							<li>Which constraints it has?</li>
+							<li>Who can access the data (read/write/delete)?</li>
+							<li>Is translatable?</li>
+						</ul>	
+					</section>
+					<section>
+						<img src="images/typeddata.png" />
+						<p>(partial) class diagram of Typed Data API.
+					</section>
+					<section>
+						<p>The Typed Data API mainly provides three different interfaces.</p>
+					</section>
+					<section>
+						<h3>ComplexDataInterface</h3>
+						<p>Implementations of this interface are used for data that is composed of named properties with more pieces of data.</p>
+					</section>
+					<section>
+						<h3>ListInterface</h3>
+						<p>Implementations of this interface are used for something that is composed of a sequential list of other things, for instance a list of other complex pieces of data. Lists are ordered and may contain duplicate items.</p>
+					</section>
+					<section>
+						<h3>TypedDataInterface</h3>
+						<p>Implementations of this interface are used for something that represents a single piece of typed data, like a string or integer.</p>
+						<p>This is the smallest building block in the Typed Data API.</p>
+					</section>
+					<section>
+						<p>TypedDataInterface are implemented as Drupal 8 plugins (with @DataType annotation).</p>
+					</section>
+					<section>
+						<ul style="float:left">
+							<li>filter_format</li>
+							<li>any</li>
+							<li>binary</li>
+							<li>boolean</li>
+							<li>datetime_iso8601</li>
+							<li>duration_iso8601</li>
+							<li>email</li>
+							<li>float</li>
+						</ul>
+						<ul style="float:right">	
+							<li>integer</li>
+							<li>list</li>
+							<li>language</li>
+							<li>language_reference</li>
+							<li>map</li>
+							<li>string</li>
+							<li>timespan</li>
+							<li>timestamp</li>
+							<li>uri</li>
+						</ul>
+					</section>
+					<section>
+						<pre><code class="hljs" data-trim contenteditable>
+ /**
+ * @DataType(
+ *   id = "string",
+ *   label = @Translation("String")
+ * )
+ */
+class StringData extends PrimitiveBase implements StringInterface {
+						</code></pre>
+					</section>
+					<section>
+						<p>TypedDataInterface implementations stores the data, the metadata are stored in other classes that implements DataDefinitionInterface.</p>
+						<p>And we can derive the DataDefinition from the TypedData and vice-versa</p>
+						<pre><code class="hljs" data-trim contenteditable>
+TypedDataInterface::getDataDefinition();
+DataDefinitionInterface::getDataType();
+						</code></pre>
+					</section>
+				</section>
+				<section>
+					<section>
+						<h1>Examples</h1>
+					</section>
+					<section>
+						<pre><code class="hljs" data-trim contenteditable>
+// Create a new DataDefinition instance 
+// wrapping the 'string' TypedData.
+$definition = DataDefinition::create('string');
+
+// Create a new data based on the previous definition
+$data = \Drupal::typedDataManager()
+	->create($definition, 'my string');
+						</code></pre>
+					</section>
+					<section>
+						<pre><code class="hljs" data-trim contenteditable>
+$defintion = ListDataDefinition::create('string');
+$list = \Drupal::typedDataManager()
+  ->create($defintion, ['my string1', 'my string2']);
+						</code></pre>
+					</section>
+					<section>
+						<pre><code class="hljs" data-trim contenteditable>
+$title = DataDefinition::create('string');
+$title_data = \Drupal::typedDataManager()
+  ->create($title, 'Link title');
+
+$url = DataDefinition::create('uri');
+$url_data = \Drupal::typedDataManager()
+  ->create($url, 'http://www.drupal.org');
+
+$link = MapDataDefinition::create();
+$link_data = \Drupal::typedDataManager()
+  ->create($link);
+$link_data->set('title', $title_data);
+$link_data->set('url', $url_data);
+						</code></pre>
+					</section>
+					<section>
+						<p>DataDefinitions can have constraints to limit the data that they accept.</p>
+					</section>
+					<section>
+						<p>Constraints are Drupal 8 plugins (with @Constraint annotation) and are build on the Symfony Validator component.</p>
+					</section>
+					<section>
+						<pre><code class="hljs" data-trim contenteditable>
+$definition = DataDefinition::create('string')
+	->addConstraint('Length', ['max' => 5]);
+$data = \Drupal::typedDataManager()
+	->create($definition, 'my string');
+						</code></pre>
+					</section>
+					<section>
+						<ul style="float:left;font-size:22px;">
+							<li>Callback</li>
+							<li>Blank</li>
+							<li>Not blank</li>
+							<li>Email</li>
+							<li>Comment author name</li>
+							<li>File URI</li>
+							<li>File Validation</li>
+							<li>Link URI can be accessed by the user.</li>
+							<li>No dangerous external protocols</li>
+							<li>No broken internal links</li>
+							<li>Link data valid for link type.</li>
+							<li>Password required for protected field change</li>
+							<li>User email required</li>
+							<li>User email unique</li>
+							<li>User name</li>
+						</ul>
+						<ul style="float:right;font-size:22px;">
+							<li>User name unique</li>
+							<li>Bundle</li>
+							<li>Entity changed</li>
+							<li>Entity type</li>
+							<li>Entity Reference reference access</li>
+							<li>Entity Reference valid reference</li>
+							<li>Allowed values</li>
+							<li>Complex data</li>
+							<li>Count</li>
+							<li>Null</li>
+							<li>Length</li>
+							<li>NotNull</li>
+							<li>Primitive type</li>
+							<li>Range</li>
+							<li>Regex</li>
+							<li>Unique field constraint</li>
+						</ul>
+					</section>
+					<section>
+						<pre><code class="hljs" data-trim contenteditable>
+$definition = DataDefinition::create('string')
+	->addConstraint('Length', ['max' => 5]);
+$data = \Drupal::typedDataManager()
+	->create($definition, 'my string');
+$validations = $data->validate();
+						</code></pre>
+						<p>$validations is an instance of \Symfony\Component\Validator\ConstraintViolationList</p>
+					</section>
+					<section>
+						<img src="images/validate.png" />
+					</section>
+				</section>
+				<section>
+					<section>
+						<h1>Entity API</h1>
+					</section>
+					<section>
+						<p>The Drupal 8 entity API is built on the Typed Data API.</p>
+					</section>
+					<section>
+						<p>An entity is a complex piece of data it is composed of other pieces of data, like fields with a list of items.</p>
+					</section>
+					<section>
+						<p>Entities are complex.</p>
+						<pre><code class="hljs" data-trim contenteditable>
+$entity instanceof ComplexDataInterface;
+						</code></pre>
+					</section>
+					<section>
+						<p>Properties are not complex, they’re only a list of items.</p>
+						<pre><code class="hljs" data-trim contenteditable>
+$entity->get('image') instanceof ListInterface;
+						</code></pre>
+					</section>
+					<section>
+						<p>Items are complex.</p>
+						<pre><code class="hljs" data-trim contenteditable>
+$entity->get('image')
+  ->offsetGet(0) instanceof ComplexDataInterface;
+						</code></pre>
+					</section>
+					<section>
+						<p>Item values are primitive.</p>
+						<pre><code class="hljs" data-trim contenteditable>
+$entity->get('image')
+  ->offsetGet(0)->get('alt') instanceof TypedDataInterface;
+						</code></pre>
+					</section>
+					<section>
+						<p>Get an array with named keys for all fields and their definitions.</p>
+						<pre><code class="hljs" data-trim contenteditable>
+$property_definitions = $entity->getFieldDefinitions();
+						</code></pre>
+					</section>
+					<section>
+						<p>Get an array with name keys for all properties and their definitions.</p>
+						<pre><code class="hljs" data-trim contenteditable>
+$property_definitions = $entity->image
+  ->getFieldDefinition()->getPropertyDefinitions();
+						</code></pre>
+					</section>
+					<section>
+						<p>Get only definition for the ‘alt’ property.</p>
+						<pre><code class="hljs" data-trim contenteditable>
+$string_definition = $entity->image
+  ->getFieldDefinition()->getPropertyDefinition('alt');
+						</code></pre>
+					</section>
+					<section>
+						<p>Entity API add two plugin instances to TypedData.</p>
+					</section>
+					<section>
+						<p>entity plugin</p>
+						<pre><code class="hljs" data-trim contenteditable>
+/**
+ * @DataType(
+ *   id = "entity",
+ *   label = @Translation("Entity"),
+ *   description = 
+       @Translation("All kind of entities, e.g. nodes, commentss"),
+ *   deriver = 
+       "\Drupal\Core\Entity\Plugin\DataType\Deriver\EntityDeriver",
+ *   definition_class = 
+       "\Drupal\Core\Entity\TypedData\EntityDataDefinition"
+ * )
+ */
+						</code></pre>
+					</section>
+					<section>
+						<ul style="float:left;font-size:22px;">
+							<li>entity</li>
+							<li>entity:block</li>
+							<li>entity:block_content</li>
+							<li>entity:block_content:basic</li>
+							<li>entity:block_content_type</li>
+							<li>entity:comment</li>
+							<li>entity:comment_type</li>
+							<li>entity:editor</li>
+							<li>entity:field_config</li>
+							<li>entity:field_storage_config</li>
+							<li>entity:file</li>
+							<li>entity:filter_format</li>
+							<li>entity:image_style</li>
+							<li>entity:node</li>
+							<li>entity:node:article</li>
+							<li>entity:node:page</li>
+							<li>entity:node:test</li>
+							<li>entity:node_type</li>
+							<li>entity:rdf_mapping</li>
+							<li>entity:search_page</li>
+						</ul>
+						<ul style="float:right;font-size:22px;">
+							<li>entity:shortcut</li>
+							<li>entity:shortcut:default</li>
+							<li>entity:shortcut_set</li>
+							<li>entity:action</li>
+							<li>entity:menu</li>
+							<li>entity:taxonomy_term</li>
+							<li>entity:taxonomy_term:tags</li>
+							<li>entity:taxonomy_vocabulary</li>
+							<li>entity:tour</li>
+							<li>entity:user_role</li>
+							<li>entity:user</li>
+							<li>entity:menu_link_content</li>
+							<li>entity:view</li>
+							<li>entity:date_format</li>
+							<li>entity:entity_form_display</li>
+							<li>entity:entity_form_mode</li>
+							<li>entity:entity_view_display</li>
+							<li>entity:entity_view_mode</li>
+							<li>entity:base_field_override</li>
+							<li>entity_reference</li>
+						</ul>
+					</section>
+					<section>
+						<p>field_item plugin</p>
+						<pre><code class="hljs" data-trim contenteditable>
+/**
+ * @DataType(
+ *   id = "field_item",
+ *   label = 
+       @Translation("Field item"),
+ *   list_class = 
+       "\Drupal\Core\Field\FieldItemList",
+ *   deriver = 
+       "Drupal\Core\Field\Plugin\DataType\Deriver\FieldItemDeriver"
+ * )
+ */
+						</code></pre>
+					</section>
+					<section>
+						<ul style="float:left;font-size:22px;">
+							<li>field_item:comment</li>
+							<li>field_item:datetime</li>
+							<li>field_item:file</li>
+							<li>field_item:image</li>
+							<li>field_item:link</li>
+							<li>field_item:list_float</li>
+							<li>field_item:list_integer</li>
+							<li>field_item:list_string</li>
+							<li>field_item:path</li>
+							<li>field_item:text</li>
+							<li>field_item:text_long</li>
+							<li>field_item:text_with_summary</li>
+							<li>field_item:boolean</li>
+							<li>field_item:changed</li>
+						</ul>
+						<ul style="float:right;font-size:22px;">
+							<li>field_item:created</li>
+							<li>field_item:decimal</li>
+							<li>field_item:email</li>
+							<li>field_item:entity_reference</li>
+							<li>field_item:float</li>
+							<li>field_item:integer</li>
+							<li>field_item:language</li>
+							<li>field_item:map</li>
+							<li>field_item:password</li>
+							<li>field_item:string</li>
+							<li>field_item:string_long</li>
+							<li>field_item:timestamp</li>
+							<li>field_item:uri</li>
+							<li>field_item:uuid</li>
+						</ul>
+					</section>
+				</section>
+				<section>
+					<section>
+						<h1>Typed Data Explorer</h1>
+					</section>
+					<section>
+						<ul>
+							<li>Simple module to browse Typed Data.</li>
+							<li>Based on Webprofiler.</li>
+							<li>https://github.com/wellnet/typed_data_explorer</li>
+						</ul>
+					</section>
+				</section>
+				<section>
+					<h1>Test Your Drupal Spritz</h1>
+					<p>Book you test with a tweet with #tyds hashtag</p>
+				</section>
+				<section>
+					<p>Thanks!s</p>
+					<p class="fragment">Questions?</p>
+				</section>
 			</div>
 		</div>
 
